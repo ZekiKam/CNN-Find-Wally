@@ -1,1 +1,1 @@
-# Find-Wally---CNN
+# CNN: Finding-Wally
