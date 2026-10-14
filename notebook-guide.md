@@ -302,16 +302,14 @@ That exact bug happened in the first draft of this notebook, which assumed 250x2
 
 ### Why not just Flatten → Linear?
 
-This is the most important design decision in the notebook, and it makes a good discussion point.
+Basically: 
+The first model had to learn Wally separately for every position, so it gave up and guessed the centre. The second asks every patch the same ‘is this Wally?’ question and takes the hottest spot, so it only has to learn what Wally looks like once.
 
-The textbook head is `Flatten` (16,384 numbers) → `Linear(16384, 64)` → `ReLU` → `Linear(64, 4)`. That's what the first draft used. **On your data it fails.** I tested it on 286 varied backgrounds with 1000 training images and 10 epochs. The loss dropped to about 0.058 by epoch 2 and stayed there. That number is what you get by predicting the **average box** (the middle of the image) for every picture. The final IoU was about 0.04. Adding BatchNorm only got it to 0.05.
+The first approach (flatten and regress):
+After the conv layers, we had a 16×16 grid of “what’s here” descriptions. Flatten tipped all of them into one long list, and a single layer had to read that list and output four coordinates. That layer had a separate set of weights for every square. So it had to learn “Wally in the top-left means these numbers” and “Wally in the bottom-right means those numbers” as unrelated facts, one square at a time, and 1,000 pictures weren’t nearly enough for that. It found a shortcut instead. Wally could be anywhere, so the answer that’s least wrong on average is the middle of the picture, and it guessed the middle every time. The loss stopped improving and IoU was 0.03.
 
-Why it fails:
-- After flattening, "stripes in square (3, 7)" and "stripes in square (3, 8)" are completely separate inputs with separate weights. The Linear layer has to learn the link from features to box coordinates **separately for each of the 256 squares**, from about 4 examples per square (1000 images ÷ 256 squares).
-- With one fixed background (the old TensorFlow notebook), that was learnable, because anything different from the usual background was Wally. With 286 backgrounds full of stripes and crowds, it isn't. The model can't find a consistent signal, so the safest bet under MSE is the average answer: the middle.
-- It's also 95% of the model's parameters (1.05 million of 1.1 million), so it's easy to overfit.
-
-The fix is to use the CNN's key idea, **weight sharing**, in the head too.
+The second approach (heatmap):
+Instead of one big question, we ask every square the same small question: “how Wally-like are you?” One shared rule scores all 256 squares, the same way a single filter slides over the whole image. If it learns to recognise Wally in one corner, it recognises him in every corner for free. The scores become a heatmap that adds up to 1. The centre is then just the average square position, weighted by those scores, so it lands where the heat is. In short, the model only has to learn what Wally looks like, and the heatmap works out where he is.
 
 ### The heatmap head, step by step
 
